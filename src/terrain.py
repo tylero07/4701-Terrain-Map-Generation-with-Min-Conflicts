@@ -1,6 +1,6 @@
 """
 terrain_csp.py — Min-Conflicts CSP for terrain map generation
-CS 4701, Assignment 2
+CS 4701, Assignment 3
 """
 
 import random
@@ -9,18 +9,19 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 
-# ── Terrain type definitions ────────────────────────────────────────────────────
-# Ordered by elevation: W(0) < B(1) < L(2) < F(3) < H(4) < M(5)
-# Adjacency constraint: two terrain types may be placed next to each other only
-# if their elevation indices differ by at most 1.
+"""Terrain Definitions"""
 
-TERRAIN_CHARS  = ['W',       'B',      'L',        'F',      'H',      'M'      ]
-TERRAIN_NAMES  = ['Water',   'Beach',  'Lowland',  'Forest', 'Hills',  'Mountains']
-TERRAIN_COLORS = ['#2166ac', '#f7e08a','#a6d96a',  '#1a9641','#8c510a','#d9d9d9' ]
-N_TERRAINS = 6
+TERRAIN_CHARS  = ['W',       'B',      'L',        'F',      'H',      'M',         'V'      ]
+TERRAIN_NAMES  = ['Water',   'Beach',  'Lowland',  'Forest', 'Hills',  'Mountains', 'Volcano']
+TERRAIN_COLORS = ['#2166ac', '#f7e08a','#a6d96a',  '#1a9641','#8c510a','#d9d9d9',   '#d73027']
+N_TERRAINS = 7
 
-# Precomputed 6×6 adjacency table — every lookup is O(1).
-# ADJACENT[i, j] = True  iff terrain i and j may be neighbours.
+"""Precomputed 7X7 adjacency table — every lookup is O(1).
+ADJACENT[i, j] = True  iff terrain i and j may be neighbours.
+Uses abs(i-j) <= 1 across the elevation chain:
+  W(0)-B(1)-L(2)-F(3)-H(4)-M(5)-V(6)
+Volcano(6) is adjacent only to Mountains(5) and other Volcanoes(6).
+"""
 ADJACENT = np.array(
     [[abs(i - j) <= 1 for j in range(N_TERRAINS)] for i in range(N_TERRAINS)],
     dtype=bool,
@@ -37,11 +38,11 @@ class TerrainGrid:
     conflict_count[r, c] np.int16   number of this cell's neighbours it conflicts with
     conflicted           set        {(r, c)} for all cells where conflict_count > 0
     """
-
     def __init__(self, rows: int, cols: int, use_diagonals: bool = False):
-        self.rows = rows
+        """Initializes the grid objects"""
+        self.rows = rows 
         self.cols = cols
-        self.use_diagonals = use_diagonals
+        self.use_diagonals = use_diagonals # 8 directions vs 5
 
         self.grid           = np.zeros((rows, cols), dtype=np.int8)
         self.conflict_count = np.zeros((rows, cols), dtype=np.int16)
@@ -51,23 +52,22 @@ class TerrainGrid:
         # inner loop.  Stored as nbrs[r][c] = [(nr0,nc0), (nr1,nc1), ...]
         self._nbrs = self._build_neighbor_lists()
 
-    # ── Setup ──────────────────────────────────────────────────────────────────
 
     def _build_neighbor_lists(self) -> list:
         """Return nbrs[r][c] — list of valid (row, col) neighbours of each cell."""
         if self.use_diagonals:
-            offsets = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1)
-                       if (dr, dc) != (0, 0)]           # 8 directions
+            offsets = [(diagonal_row, diagonal_col) for diagonal_row in (-1, 0, 1) for diagonal_col in (-1, 0, 1)
+                       if (diagonal_row, diagonal_col) != (0, 0)]           # 8 directions
         else:
             offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # 4 directions
 
         nbrs = [[[] for _ in range(self.cols)] for _ in range(self.rows)]
         for r in range(self.rows):
             for c in range(self.cols):
-                for dr, dc in offsets:
-                    nr, nc = r + dr, c + dc
-                    if 0 <= nr < self.rows and 0 <= nc < self.cols:
-                        nbrs[r][c].append((nr, nc))
+                for diagonal_row, diagonal_col in offsets:
+                    neighbor_row, neighbor_col = r + diagonal_row, c + diagonal_col
+                    if 0 <= neighbor_row < self.rows and 0 <= neighbor_col < self.cols:
+                        nbrs[r][c].append((neighbor_row, neighbor_col))
         return nbrs
 
     def initialize_random(self):
@@ -81,13 +81,12 @@ class TerrainGrid:
         for r in range(self.rows):
             for c in range(self.cols):
                 t = int(self.grid[r, c])
-                cc = sum(0 if ADJACENT[t, self.grid[nr, nc]] else 1
-                         for nr, nc in self._nbrs[r][c])
+                cc = sum(0 if ADJACENT[t, self.grid[neighbor_row, neighbor_col]] else 1
+                         for neighbor_row, neighbor_col in self._nbrs[r][c])
                 self.conflict_count[r, c] = cc
                 if cc > 0:
                     self.conflicted.add((r, c))
 
-    # ── Algorithm internals ────────────────────────────────────────────────────
 
     def _min_conflict_value(self, r: int, c: int) -> int:
         """
@@ -95,7 +94,7 @@ class TerrainGrid:
         for cell (r, c) given its current neighbours.
         Ties are broken uniformly at random.
         """
-        nbr_ts = [int(self.grid[nr, nc]) for nr, nc in self._nbrs[r][c]]
+        nbr_ts = [int(self.grid[neighbor_row, neighbor_col]) for neighbor_row, neighbor_col in self._nbrs[r][c]]
 
         if not nbr_ts:                         # isolated cell — any terrain is fine
             return random.randrange(N_TERRAINS)
@@ -125,28 +124,27 @@ class TerrainGrid:
         self.grid[r, c] = new_t
 
         # Update each neighbour: only the edge connecting it to (r,c) changed.
-        for nr, nc in self._nbrs[r][c]:
-            nt = int(self.grid[nr, nc])
+        for neighbor_row, neighbor_col in self._nbrs[r][c]:
+            nt = int(self.grid[neighbor_row, neighbor_col])
             was_conflict = not ADJACENT[old_t, nt]
             now_conflict = not ADJACENT[new_t, nt]
             if was_conflict != now_conflict:
-                self.conflict_count[nr, nc] += 1 if now_conflict else -1
-                if self.conflict_count[nr, nc] > 0:
-                    self.conflicted.add((nr, nc))
+                self.conflict_count[neighbor_row, neighbor_col] += 1 if now_conflict else -1
+                if self.conflict_count[neighbor_row, neighbor_col] > 0:
+                    self.conflicted.add((neighbor_row, neighbor_col))
                 else:
-                    self.conflicted.discard((nr, nc))
+                    self.conflicted.discard((neighbor_row, neighbor_col))
 
         # Recount (r, c) itself — its terrain changed, so all its edges need checking.
         self.conflict_count[r, c] = sum(
-            0 if ADJACENT[new_t, self.grid[nr, nc]] else 1
-            for nr, nc in self._nbrs[r][c]
+            0 if ADJACENT[new_t, self.grid[neighbor_row, neighbor_col]] else 1
+            for neighbor_row, neighbor_col in self._nbrs[r][c]
         )
         if self.conflict_count[r, c] > 0:
             self.conflicted.add((r, c))
         else:
             self.conflicted.discard((r, c))
 
-    # ── Solver ─────────────────────────────────────────────────────────────────
 
     def solve(
         self,
@@ -193,9 +191,9 @@ class TerrainGrid:
         it, rebuilding only when exhausted or too many stale entries appear.
         This is the main speedup over the naive loop for large conflict sets.
         """
-        if max_iterations is None:
+        if max_iterations is None: # max iterations 1,000,000
             max_iterations = min(5 * self.rows * self.cols, 100_000)
-        if patience is None:
+        if patience is None: # 10,000 with no increase to prevent sticking at local optima
             patience = max(2_000, self.rows * self.cols // 2)
 
         n_start = len(self.conflicted)
@@ -207,7 +205,6 @@ class TerrainGrid:
         if verbose:
             print(f'  {pfx} start  conflicts={n_start:,}')
 
-        # ── Batch-based candidate selection ──────────────────────────────────
         # Build a shuffled list from the conflicted set once, then walk through
         # it sequentially.  Cells fixed mid-batch are skipped (stale check).
         # Rebuild when the batch is exhausted or too many stale hits pile up.
@@ -218,16 +215,16 @@ class TerrainGrid:
         STALE_LIMIT = max(32, len(candidates))
 
         i = 0  # counts actual assignments (not loop steps)
+
         while i < max_iterations:
 
-            # ── Check solved ─────────────────────────────────────────────────
             if not self.conflicted:
                 log.append((i, 0))
                 if verbose:
                     print(f'  {pfx} ✓ converged  iters={i:,}')
                 return i, True, log
 
-            # ── Rebuild candidate batch if needed ────────────────────────────
+            
             if ptr >= len(candidates) or stale_run >= STALE_LIMIT:
                 candidates  = list(self.conflicted)
                 random.shuffle(candidates)
@@ -247,7 +244,7 @@ class TerrainGrid:
             self._assign(r, c, self._min_conflict_value(r, c))
             i += 1
 
-            # ── Periodic progress + patience check ───────────────────────────
+            
             if i % log_every == 0:
                 n = len(self.conflicted)
                 log.append((i, n))
@@ -273,7 +270,6 @@ class TerrainGrid:
             print(f'  {pfx} ✗ limit  iters={i:,}  conflicts={n:,}')
         return i, False, log
 
-    # ── Utilities ──────────────────────────────────────────────────────────────
 
     def copy_grid(self) -> np.ndarray:
         """Snapshot the current grid array (call before solve() for before/after viz)."""
