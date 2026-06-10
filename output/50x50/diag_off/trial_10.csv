@@ -1,0 +1,15 @@
+iteration,n_conflicted_cells,converged,total_iterations
+0,2373,True,3232
+250,2268,True,3232
+500,2157,True,3232
+750,2036,True,3232
+1000,1900,True,3232
+1250,1719,True,3232
+1500,1486,True,3232
+1750,1242,True,3232
+2000,956,True,3232
+2250,809,True,3232
+2500,602,True,3232
+2750,349,True,3232
+3000,154,True,3232
+3232,0,True,3232
